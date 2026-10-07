@@ -71,10 +71,14 @@ npm run dev
 
 ## 배포
 
-- claude.ai 아티팩트: https://claude.ai/artifact/1Xv98iUohfAGdUT9K7bFNL (같이 하기는 claude.ai에 로그인한 사람끼리 됩니다)
-- 다시 올릴 때는 `game-projects` 폴더에서 `node tools/build-artifact.mjs suika-game "수박게임" <출력 파일>`로 HTML 한 장을 만들고, 위 주소를 지정해서 발행합니다. 발행할 때 `room` 기능을 선언해야 같이 하기가 됩니다.
+| 위치 | 주소 | 같이 하기 |
+|---|---|---|
+| 공개 사이트 | https://geonwoologibros.github.io/suika-game/ | 로그인 없이 누구나 됩니다. 브라우저끼리 직접 연결(P2P)합니다. |
+| claude.ai 아티팩트 | https://claude.ai/artifact/1Xv98iUohfAGdUT9K7bFNL | claude.ai에 로그인한 사람끼리 됩니다. |
+
+- 공개 사이트는 `main` 브랜치에 푸시하면 GitHub Actions가 테스트와 `npm run build:web`을 실행한 뒤 Pages에 올립니다.
+- 아티팩트를 다시 올릴 때는 `game-projects` 폴더에서 `node tools/build-artifact.mjs suika-game "수박게임" <출력 파일>`로 HTML 한 장을 만들고, 위 주소를 지정해서 발행합니다. 발행할 때 `room` 기능을 선언해야 같이 하기가 됩니다.
 
 ## 아직 하지 않은 것
 
-- 공개 사이트(로그인 없이 같이 하기)에는 올리지 않았습니다. GitHub 공개 저장소와 Pages 설정이 필요합니다.
 - 서로 다른 기기 사이의 같이 하기는 확인하지 않았습니다. 같은 컴퓨터의 탭 두 개로만 확인했습니다.
