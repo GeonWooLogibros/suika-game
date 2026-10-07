@@ -33,6 +33,15 @@ export const LINE_Y = 70;
 /** 과일을 놓는 높이. */
 export const DROP_Y = 36;
 
+/** 방해 대전에서 떨어지는 방해 구슬. 과일 표 바로 다음 번호를 쓰고, 어떤 것과도 합쳐지지 않습니다. */
+export const STONE = FRUITS.length;
+export const STONE_RADIUS = 14;
+
+/** 과일이나 방해 구슬의 반지름. 없는 단계는 0입니다. */
+export function radiusOf(tier: number): number {
+  return tier === STONE ? STONE_RADIUS : (FRUITS[tier]?.radius ?? 0);
+}
+
 /** 같은 단계의 과일 둘을 합쳤을 때 얻는 점수. 수박 둘은 66점입니다. */
 export function mergeScore(tier: number): number {
   const n = tier + 1;
