@@ -34,16 +34,16 @@ export function computeLayout(width: number, height: number, rivals: number): La
   let areaH = Math.max(1, height - areaY - PAD);
   const rects: Rect[] = [];
 
-  if (count > 0 && width > height) {
-    const columnW = Math.min(150, areaW * 0.28);
+  // 가로로 넓으면 상대의 통을 내 통 오른쪽 기둥에 둡니다. 가로 위치는 내 통의 크기가 정해진 뒤에 맞춥니다.
+  const side = count > 0 && width > height;
+  let columnW = 0;
+  if (side) {
+    columnW = Math.min(220, areaW * 0.28);
     const cellH = Math.min((areaH - GAP * (count - 1)) / count, (columnW * BIN_H) / BIN_W + LABEL_H);
     const h = Math.max(1, cellH - LABEL_H);
     const w = (h * BIN_W) / BIN_H;
-    const columnX = width - PAD - columnW;
-    for (let i = 0; i < count; i++) {
-      rects.push({ x: columnX + (columnW - w) / 2, y: areaY + i * (cellH + GAP) + LABEL_H, w, h });
-    }
-    areaW -= columnW + GAP;
+    for (let i = 0; i < count; i++) rects.push({ x: 0, y: areaY + i * (cellH + GAP) + LABEL_H, w, h });
+    areaW -= columnW + GAP * 2;
   } else if (count > 0) {
     const rowH = Math.min(130, areaH * 0.22);
     const h = Math.max(1, rowH - LABEL_H);
@@ -59,8 +59,15 @@ export function computeLayout(width: number, height: number, rivals: number): La
   const scale = Math.max(0.01, Math.min(areaW / BIN_W, areaH / BIN_H));
   const w = BIN_W * scale;
   const h = BIN_H * scale;
+  let binX = areaX + (areaW - w) / 2;
+  if (side) {
+    // 내 통과 기둥을 한 묶음으로 화면 가운데에 두어서, 상대의 통이 화면 구석으로 멀어지지 않게 합니다.
+    const groupW = w + GAP * 2 + columnW;
+    binX = areaX + (areaW + GAP * 2 + columnW - groupW) / 2;
+    for (const rect of rects) rect.x = binX + w + GAP * 2 + (columnW - rect.w) / 2;
+  }
   return {
-    bin: { x: areaX + (areaW - w) / 2, y: areaY + (areaH - h) / 2, w, h },
+    bin: { x: binX, y: areaY + (areaH - h) / 2, w, h },
     scale,
     hud,
     rivals: rects,

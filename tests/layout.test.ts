@@ -36,6 +36,22 @@ describe('화면 배치', () => {
     }
   }
 
+  it('넓은 화면에서 상대의 통은 화면 구석이 아니라 내 통 바로 옆에 놓입니다', () => {
+    for (let rivals = 1; rivals <= 3; rivals++) {
+      const layout = computeLayout(1920, 1080, rivals);
+      for (const rect of layout.rivals) {
+        const gap = rect.x - (layout.bin.x + layout.bin.w);
+        expect(gap).toBeGreaterThan(0);
+        expect(gap).toBeLessThan(80);
+        expect(rect.w).toBeGreaterThanOrEqual(100);
+      }
+      // 내 통과 상대의 통을 한 묶음으로 보고 화면 가운데에 둡니다.
+      const left = layout.bin.x;
+      const right = 1920 - Math.max(...layout.rivals.map((rect) => rect.x + rect.w));
+      expect(Math.abs(left - right)).toBeLessThan(120);
+    }
+  });
+
   it('상대의 수가 범위를 벗어나면 0명에서 3명 사이로 맞춥니다', () => {
     expect(computeLayout(800, 600, -2).rivals).toHaveLength(0);
     expect(computeLayout(800, 600, 9).rivals).toHaveLength(3);

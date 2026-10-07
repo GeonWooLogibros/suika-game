@@ -1,4 +1,6 @@
-/** 처음 화면, 결과 화면, 게임 중 버튼. 버튼이 눌리면 넘겨받은 함수를 부르기만 하고 게임 상태를 직접 바꾸지 않습니다. */
+import type { LobbyView, ResultRow } from '../multiplayer';
+
+/** 처음 화면, 대기실, 결과 화면, 게임 중 버튼. 버튼이 눌리면 넘겨받은 함수를 부르기만 하고 게임 상태를 직접 바꾸지 않습니다. */
 
 export type MenuView =
   | {
@@ -12,7 +14,9 @@ export type MenuView =
       error: string | null;
     }
   | { kind: 'play'; muted: boolean; multi: boolean }
-  | { kind: 'soloResult'; score: number; best: number; newBest: boolean };
+  | { kind: 'soloResult'; score: number; best: number; newBest: boolean }
+  | { kind: 'lobby'; view: LobbyView; copied: boolean }
+  | { kind: 'multiResult'; rows: ResultRow[] };
 
 export interface MenuActions {
   solo(): void;
@@ -22,6 +26,13 @@ export interface MenuActions {
   home(): void;
   quit(): void;
   sound(): void;
+  ready(): void;
+  start(): void;
+  /** 초대 링크를 복사합니다. */
+  copy(invite: string): void;
+  /** 결과 화면에서 대기실로 돌아갑니다. */
+  lobby(): void;
+  leave(): void;
 }
 
 export function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = ''): HTMLElementTagNameMap[K] {
@@ -104,10 +115,65 @@ export function createMenus(root: HTMLElement, actions: MenuActions): { show(vie
     return panel;
   }
 
+  function lobby({ view, copied }: Extract<MenuView, { kind: 'lobby' }>): HTMLElement {
+    const panel = el('div', 'panel');
+    panel.append(el('h1', 'title', '대기실'), el('p', 'code', view.code.toUpperCase()));
+
+    const invite = el('input', 'field');
+    invite.readOnly = true;
+    invite.value = view.invite;
+    invite.addEventListener('focus', () => invite.select());
+    panel.append(invite, button(copied ? '복사했습니다' : '초대 링크 복사하기', () => actions.copy(view.invite)));
+
+    const rows = el('ul', 'rows');
+    for (const row of view.rows) {
+      const item = el('li', row.me ? 'row me' : 'row');
+      const tag = row.host ? '방장' : row.busy ? '판 진행 중' : row.ready ? '준비 완료' : '준비 중';
+      item.append(el('span', '', row.me ? `${row.name} (나)` : row.name), el('span', 'tag', tag));
+      rows.append(item);
+    }
+    panel.append(rows);
+
+    if (!view.settled) {
+      panel.append(el('p', 'hint', '방의 상태를 확인하는 중입니다.'));
+    } else if (view.isHost) {
+      const start = button('시작하기', actions.start, 'btn primary');
+      start.disabled = !view.canStart;
+      panel.append(start);
+      if (!view.canStart) {
+        panel.append(
+          el('p', 'hint', view.rows.length < 2 ? '다른 사람이 들어오면 시작할 수 있습니다.' : '모두 준비하면 시작할 수 있습니다.'),
+        );
+      }
+    } else {
+      panel.append(button(view.ready ? '준비 취소하기' : '준비하기', actions.ready, 'btn primary'));
+      panel.append(el('p', 'hint', '모두 준비하면 방장이 판을 시작합니다. 수박을 먼저 만드는 사람이 이깁니다.'));
+    }
+    panel.append(button('방 나가기', actions.leave));
+    return panel;
+  }
+
+  function multiResult(view: Extract<MenuView, { kind: 'multiResult' }>): HTMLElement {
+    const panel = el('div', 'panel');
+    const mine = view.rows.find((row) => row.me);
+    panel.append(el('h1', 'title', mine?.winner ? '승리했습니다' : '판이 끝났습니다'));
+    const rows = el('ul', 'rows');
+    view.rows.forEach((row, i) => {
+      const item = el('li', row.me ? 'row me' : 'row');
+      const tag = row.state === 'win' ? `수박 완성 · ${row.score}점` : `${row.score}점`;
+      item.append(el('span', '', `${i + 1}위 ${row.me ? `${row.name} (나)` : row.name}`), el('span', 'tag', tag));
+      rows.append(item);
+    });
+    panel.append(rows, button('대기실로 돌아가기', actions.lobby, 'btn primary'), button('방 나가기', actions.leave));
+    return panel;
+  }
+
   function build(view: MenuView): HTMLElement {
     if (view.kind === 'title') return title(view);
     if (view.kind === 'play') return play(view);
-    return soloResult(view);
+    if (view.kind === 'soloResult') return soloResult(view);
+    if (view.kind === 'lobby') return lobby(view);
+    return multiResult(view);
   }
 
   return {

@@ -1,15 +1,20 @@
 import './style.css';
 import { createAudio } from './audio';
+import { parseRoomCode } from './game/match';
 import { attachInput } from './input';
+import { Multiplayer, type Stage } from './multiplayer';
+import { connect, type Connection } from './net/connect';
 import { Effects } from './render/effects';
 import { computeLayout, toBinX } from './render/layout';
 import { drawScene } from './render/scene';
 import { Session } from './session';
-import { browserStorage, loadBest, loadName, saveBest } from './storage';
+import { browserStorage, loadBest, loadName, saveBest, saveName } from './storage';
 import { createMenus, type MenuView } from './ui/menus';
 
 /** 키보드로 위치를 옮기는 속도(통 안의 좌표, 초당). */
 const AIM_SPEED = 300;
+/** 초대 링크를 복사했다는 표시를 보여 주는 시간(밀리초). */
+const COPIED_MS = 2000;
 
 const app = document.querySelector<HTMLDivElement>('#app');
 if (!app) throw new Error('#app이 없습니다.');
@@ -28,6 +33,8 @@ const input = attachInput(canvas);
 const boost = import.meta.env.DEV
   ? Math.max(0, Math.min(5, Number(new URLSearchParams(window.location.search).get('boost')) || 0))
   : 0;
+/** 초대 링크로 열었으면 주소 뒤의 방 코드를 입력 칸에 미리 넣어 둡니다. */
+const invitedCode = parseRoomCode(window.location.hash) ?? '';
 
 type Mode = 'title' | 'solo' | 'soloOver';
 let mode: Mode = 'title';
@@ -36,8 +43,38 @@ let best = loadBest(store);
 let newBest = false;
 let width = 0;
 let height = 0;
+let connection: Connection | null = null;
+let mp: Multiplayer | null = null;
+let copiedAt = -Infinity;
+/** 같이 하기에서 내가 탈락했을 때 소리를 한 번만 내기 위한 표시. */
+let outAnnounced = false;
+
+function onStage(stage: Stage): void {
+  if (stage === 'countdown' && mp) {
+    effects.clear();
+    session = new Session(mp.seed, { boost });
+    outAnnounced = false;
+  } else if (stage === 'result' && mp) {
+    if (mp.resultRows().some((row) => row.me && row.winner)) audio.win();
+    else if (!outAnnounced) audio.over();
+  } else if (stage === 'lobby' || stage === 'idle') {
+    session = null;
+    effects.clear();
+    mode = 'title';
+  }
+}
+
+void connect().then((result) => {
+  connection = result;
+  mp = new Multiplayer(result.lobby, result.inviteBase, { onStage });
+});
+
+function inRoom(): boolean {
+  return mp !== null && mp.stage !== 'idle' && mp.stage !== 'joining';
+}
 
 function startSolo(): void {
+  if (inRoom()) return;
   audio.unlock();
   effects.clear();
   session = new Session(Math.floor(Math.random() * 0x7fffffff), { boost });
@@ -53,18 +90,55 @@ function goHome(): void {
 
 const menus = createMenus(app, {
   solo: startSolo,
-  create: () => undefined,
-  join: () => undefined,
+  create: (name) => {
+    audio.unlock();
+    saveName(store, name);
+    void mp?.create(name);
+  },
+  join: (code, name) => {
+    audio.unlock();
+    saveName(store, name);
+    void mp?.join(code, name);
+  },
   retry: startSolo,
   home: goHome,
-  quit: goHome,
+  quit: () => {
+    if (inRoom()) mp?.leave();
+    else goHome();
+  },
   sound: () => audio.toggle(),
+  ready: () => mp?.toggleReady(),
+  start: () => mp?.start(),
+  copy: (invite) => {
+    // 클립보드를 쓸 수 없는 환경에서는 입력 칸의 글자를 직접 복사하면 됩니다.
+    navigator.clipboard?.writeText(invite).then(
+      () => (copiedAt = performance.now()),
+      () => undefined,
+    );
+  },
+  lobby: () => mp?.backToLobby(),
+  leave: () => mp?.leave(),
 });
 
-function view(): MenuView {
+function view(now: number): MenuView {
+  const stage = mp?.stage ?? 'idle';
+  if (mp && stage === 'lobby') {
+    const lobby = mp.lobbyView();
+    if (lobby) return { kind: 'lobby', view: lobby, copied: now - copiedAt < COPIED_MS };
+  }
+  if (mp && (stage === 'countdown' || stage === 'playing')) return { kind: 'play', muted: audio.muted, multi: true };
+  if (mp && stage === 'result') return { kind: 'multiResult', rows: mp.resultRows() };
   if (mode === 'solo') return { kind: 'play', muted: audio.muted, multi: false };
   if (mode === 'soloOver') return { kind: 'soloResult', score: session?.score ?? 0, best, newBest };
-  return { kind: 'title', best, name: loadName(store), code: '', multi: 'none', busy: false, error: null };
+  return {
+    kind: 'title',
+    best,
+    name: loadName(store),
+    code: invitedCode,
+    multi: !connection ? 'connecting' : connection.lobby ? 'ready' : 'none',
+    busy: stage === 'joining',
+    error: mp?.error ?? null,
+  };
 }
 
 function resize(): void {
@@ -84,13 +158,18 @@ function frame(time: number): void {
   const elapsed = Math.max(0, time - last);
   last = time;
   resize();
-  const layout = computeLayout(width, height, 0);
+
+  const stage = mp?.stage ?? 'idle';
+  const multi = inRoom();
+  const rivals = mp && multi ? mp.rivals() : [];
+  const layout = computeLayout(width, height, rivals.length);
+  const running = session !== null && ((mode === 'solo' && !multi) || stage === 'playing');
 
   // 게임 중이 아닐 때 들어온 입력이 다음 판으로 넘어가지 않게 매 프레임 읽어서 비웁니다.
   const pointer = input.takePointer();
   const wantDrop = input.takeDrop();
 
-  if (session && mode === 'solo') {
+  if (session && running) {
     const axis = input.axis();
     if (axis !== 0) session.aim(session.aimX + (axis * AIM_SPEED * Math.min(elapsed, 100)) / 1000);
     if (pointer !== null) session.aim(toBinX(pointer, layout));
@@ -99,32 +178,49 @@ function frame(time: number): void {
       effects.merge(merge);
       audio.merge(merge.from);
     }
-    if (session.over) {
+    if (!multi && session.over) {
       newBest = session.score > best;
       best = saveBest(store, session.score);
       audio.over();
       mode = 'soloOver';
     }
+    if (multi && session.over && !outAnnounced) {
+      outAnnounced = true;
+      audio.over();
+    }
   }
+
+  if (mp && session && stage === 'playing') {
+    mp.report({
+      score: session.score,
+      top: session.top,
+      state: session.watermelonAt !== null ? 'win' : session.over ? 'out' : 'play',
+      winTicks: session.watermelonAt,
+      fruits: session.fruits(),
+    });
+  }
+  mp?.update();
   effects.update(Math.min(elapsed, 100) / 1000);
 
   const held = session?.held ?? null;
+  const stageNow = mp?.stage ?? 'idle';
   drawScene(ctx, {
     width,
     height,
     layout,
     fruits: session?.fruits() ?? [],
-    held: session && held !== null ? { tier: held, x: session.aimX } : null,
+    held: session && held !== null && stageNow !== 'countdown' && stageNow !== 'result' ? { tier: held, x: session.aimX } : null,
     upcoming: session ? session.upcoming : null,
     score: session?.score ?? 0,
     best,
     overflow: session?.overflowRatio ?? 0,
     effects,
-    rivals: [],
-    countdown: null,
-    note: null,
+    rivals,
+    countdown: mp && stageNow === 'countdown' ? mp.countdownLeft() : null,
+    note:
+      stageNow === 'playing' && session?.over ? '탈락했습니다. 다른 사람의 통을 구경합니다.' : null,
   });
-  menus.show(view());
+  menus.show(view(time));
   requestAnimationFrame(frame);
 }
 
