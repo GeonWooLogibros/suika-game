@@ -846,21 +846,39 @@ describe('한 판의 진행', () => {
     expect(session.fruits().some((fruit) => fruit.tier === WATERMELON)).toBe(true);
   });
 
-  it('과일이 선 위에 2초 머물면 판이 끝나고, 그 뒤로는 진행하지 않습니다', () => {
-    const session = new Session(1, { queue: always(0) });
-    // 수박, 멜론, 파인애플을 한 줄로 쌓으면 맨 위 과일이 선보다 위에 놓입니다.
-    session.world.add(10, 180, 390, true);
-    session.world.add(9, 180, 224, true);
-    session.world.add(8, 180, 87, true);
-    run(session, OVERFLOW_TICKS - 10);
-    expect(session.over).toBe(false);
-    expect(session.overflowRatio).toBeGreaterThan(0.5);
-    run(session, 20);
+  it('과일을 계속 떨어뜨려 통이 차면 선 넘음 시간이 다 찬 뒤에 판이 끝나고, 그 뒤로는 진행하지 않습니다', () => {
+    // 한 줄로 쌓은 과일은 금방 무너지므로, 여러 단계를 번갈아 떨어뜨려 실제 판처럼 통을 채웁니다.
+    let index = 0;
+    const cycle: FruitQueue = {
+      current: () => (index * 3) % 5,
+      upcoming: () => ((index + 1) * 3) % 5,
+      advance: () => {
+        index++;
+      },
+    };
+    const session = new Session(1, { queue: cycle });
+    let rising = 0;
+    for (let drops = 0; drops < 600 && !session.over; drops++) {
+      session.aim(20 + ((drops * 97) % 320));
+      session.drop();
+      for (let i = 0; i < DROP_COOLDOWN_TICKS && !session.over; i++) {
+        session.tick();
+        if (!session.over) rising = Math.max(rising, session.overflowRatio);
+      }
+    }
     expect(session.over).toBe(true);
+    expect(session.overflowRatio).toBe(1);
+    // 끝나기 직전까지 시간이 차오르는 것이 보였어야 합니다.
+    expect(rising).toBeGreaterThan(0.9);
+    expect(session.ticks).toBeGreaterThan(OVERFLOW_TICKS);
     const ticks = session.ticks;
+    const score = session.score;
     session.tick();
+    session.advance(1000);
     expect(session.ticks).toBe(ticks);
+    expect(session.score).toBe(score);
     expect(session.drop()).toBe(false);
+    expect(session.held).toBeNull();
   });
 
   it('방금 놓아서 떨어지는 과일은 선 넘음으로 세지 않습니다', () => {
@@ -1048,7 +1066,7 @@ export class Session {
 Run: `npx vitest run tests/session.test.ts && npx tsc --noEmit`
 Expected: 10개 PASS, 타입 오류 없음.
 
-"선 위에 2초" 테스트에서 쌓아 둔 과일이 넘어져서 실패한다면, 과일의 x를 바꾸지 말고 `world.ts`의 `FRICTION`을 높이는 방향으로 조정합니다. "합쳐지고 점수를 얻습니다" 테스트에서 합쳐지지 않으면 두 번째 과일이 첫 번째 과일 위에 닿았는지 `session.world.contacts()`를 출력해 확인합니다.
+"합쳐지고 점수를 얻습니다" 테스트에서 합쳐지지 않으면 두 번째 과일이 첫 번째 과일 위에 닿았는지 `session.world.contacts()`를 출력해 확인합니다.
 
 - [ ] **Step 5: 커밋합니다**
 
