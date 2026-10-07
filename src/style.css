@@ -1,0 +1,183 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #fff4dc;
+  font-family:
+    system-ui,
+    'Apple SD Gothic Neo',
+    sans-serif;
+  color: #5b3a1e;
+  overscroll-behavior: none;
+}
+
+#app,
+#app canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* 통 위에서 끌 때 화면이 따라 움직이지 않게 합니다. */
+#app canvas {
+  touch-action: none;
+}
+
+.menus {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+  /* 게임 중에는 캔버스가 입력을 받아야 하므로, 화면 요소가 있는 자리만 입력을 받습니다. */
+  pointer-events: none;
+}
+
+.menus > * {
+  pointer-events: auto;
+}
+
+.panel {
+  width: min(360px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 22px 20px;
+  border-radius: 18px;
+  border: 3px solid #c98b4a;
+  background: #fffaf0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: center;
+}
+
+.title {
+  margin: 0;
+  font-size: 28px;
+}
+
+.heading {
+  margin: 6px 0 0;
+  font-size: 15px;
+}
+
+.sub,
+.hint,
+.error {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.hint {
+  color: #9a7650;
+}
+
+.error {
+  color: #c92a2a;
+}
+
+.score {
+  margin: 0;
+  font-size: 44px;
+  font-weight: 800;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 2px dashed #e6c9a0;
+}
+
+.btn,
+.field {
+  font: inherit;
+  font-size: 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 2px solid #c98b4a;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.btn {
+  background: #fff;
+  color: #5b3a1e;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn.primary {
+  background: #ff922b;
+  border-color: #e8590c;
+  color: #fff;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn.small {
+  width: auto;
+  font-size: 13px;
+  padding: 7px 10px;
+}
+
+.field {
+  background: #fff;
+  color: #5b3a1e;
+}
+
+.corner {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  gap: 6px;
+}
+
+.rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: left;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #fff;
+  border: 2px solid #f0dcbd;
+  font-size: 15px;
+}
+
+.row.me {
+  border-color: #ff922b;
+}
+
+.row .tag {
+  color: #9a7650;
+  white-space: nowrap;
+}
+
+.code {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 4px;
+  margin: 0;
+}
