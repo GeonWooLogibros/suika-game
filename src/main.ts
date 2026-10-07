@@ -48,6 +48,8 @@ let mp: Multiplayer | null = null;
 let copiedAt = -Infinity;
 /** 같이 하기에서 내가 탈락했을 때 소리를 한 번만 내기 위한 표시. */
 let outAnnounced = false;
+/** 대기실에서 마지막으로 본 사람 수와 준비한 사람 수. 늘어났을 때 소리를 내는 데 씁니다. */
+let lobbySeen: { people: number; readied: number } | null = null;
 
 function onStage(stage: Stage): void {
   if (stage === 'countdown' && mp) {
@@ -211,6 +213,17 @@ function frame(time: number): void {
     });
   }
   mp?.update();
+  // 대기실에 사람이 들어오거나 준비하면 소리로 알립니다.
+  const lobbyNow = mp?.lobbyView() ?? null;
+  if (lobbyNow) {
+    const people = lobbyNow.rows.length;
+    const readied = lobbyNow.rows.filter((row) => row.ready).length;
+    if (lobbySeen && people > lobbySeen.people) audio.join();
+    else if (lobbySeen && readied > lobbySeen.readied) audio.ready();
+    lobbySeen = { people, readied };
+  } else {
+    lobbySeen = null;
+  }
   effects.update(Math.min(elapsed, 100) / 1000);
 
   const held = session?.held ?? null;

@@ -7,6 +7,10 @@ export interface Sound {
   merge(tier: number): void;
   over(): void;
   win(): void;
+  /** 대기실에 사람이 들어왔을 때. */
+  join(): void;
+  /** 대기실에서 누군가 준비했을 때. */
+  ready(): void;
 }
 
 /** 음원 파일 없이 Web Audio로 효과음을 합성합니다. 소리를 낼 수 없는 환경에서는 아무 일도 하지 않습니다. */
@@ -51,6 +55,11 @@ export function createAudio(): Sound {
       tone(330, 0.25, 'sawtooth', 0, 0.1);
       tone(220, 0.4, 'sawtooth', 0.2, 0.1);
     },
+    join: () => {
+      tone(520, 0.1, 'sine', 0, 0.14);
+      tone(780, 0.14, 'sine', 0.09, 0.14);
+    },
+    ready: () => tone(660, 0.12, 'triangle', 0, 0.14),
     win: () => {
       [523, 659, 784, 1047].forEach((frequency, i) => tone(frequency, 0.22, 'triangle', i * 0.12));
     },

@@ -13,7 +13,7 @@ body {
 }
 
 #app,
-#app canvas {
+#app > canvas {
   position: fixed;
   inset: 0;
   width: 100%;
@@ -22,7 +22,7 @@ body {
 }
 
 /* 통 위에서 끌 때 화면이 따라 움직이지 않게 합니다. */
-#app canvas {
+#app > canvas {
   touch-action: none;
 }
 
@@ -182,23 +182,282 @@ body {
   margin: 0;
 }
 
+/* 큰 선택 버튼: 처음 화면에서 혼자 하기, 방 만들기, 방 들어가기를 고릅니다. */
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 16px;
+  border: 2px solid #c98b4a;
+  background: #fff;
+  color: #5b3a1e;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.08s ease;
+}
+
+.choice:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+.choice.primary {
+  background: #ff922b;
+  border-color: #e8590c;
+  color: #fff;
+}
+
+.choice:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.choice-icon {
+  flex: none;
+}
+
+.choice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.choice-label {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.choice-detail {
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.title.brand {
+  font-size: 34px;
+  letter-spacing: 1px;
+}
+
+.labeled {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+}
+
+.label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #9a7650;
+}
+
+.code-input {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 6px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.code-input::placeholder {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: #c9b08e;
+}
+
+.btn.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: #9a7650;
+  font-weight: 600;
+  padding: 6px;
+}
+
+.panel.lobby {
+  width: min(440px, 100%);
+}
+
+/* 방 코드: 뜯어 주는 표처럼 점선 테두리를 두릅니다. */
+.ticket {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px 10px 16px;
+  border-radius: 14px;
+  border: 2px dashed #e8590c;
+  background: #fff4e0;
+}
+
+.ticket-code {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+
+.ticket .code {
+  font-size: 32px;
+  line-height: 1.1;
+  letter-spacing: 5px;
+  color: #e8590c;
+}
+
+.seats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.seat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 2px 8px;
+  border-radius: 14px;
+  border: 2px solid #f0dcbd;
+  background: #fff;
+  min-width: 0;
+}
+
+.seat.me {
+  border-color: #ff922b;
+}
+
+.seat.empty {
+  justify-content: center;
+  border-style: dashed;
+  background: transparent;
+  color: #c9b08e;
+  min-height: 104px;
+}
+
+.seat-plus {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.seat-name {
+  max-width: 100%;
+  padding: 0 4px;
+  box-sizing: border-box;
+  font-size: 13px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seat-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f3e6d0;
+  color: #9a7650;
+}
+
+.seat.host .seat-tag {
+  background: #ffe066;
+  color: #7a5a00;
+}
+
+.seat.ready .seat-tag {
+  background: #d3f9d8;
+  color: #2b8a3e;
+}
+
+.seat.ready {
+  border-color: #8ce99a;
+}
+
+/* 준비한 사람의 과일은 들썩이고, 아직 준비하지 않은 사람의 과일은 흐리게 둡니다. */
+.seat.ready .avatar,
+.seat.host .avatar {
+  animation: hop 0.9s ease-in-out infinite;
+}
+
+.seat.waiting .avatar,
+.seat.busy .avatar {
+  opacity: 0.55;
+}
+
+@keyframes hop {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seat .avatar {
+    animation: none;
+  }
+}
+
 .modes {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 6px;
 }
 
-.modes .btn.small {
-  width: 100%;
+.mode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px 8px;
+  border-radius: 14px;
+  border: 2px solid #f0dcbd;
+  background: #fff;
+  color: #5b3a1e;
+  font: inherit;
+  cursor: pointer;
 }
 
-.btn.on {
-  background: #ffe8cc;
+.mode-art {
+  max-width: 100%;
+}
+
+.mode-label {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.mode.on {
   border-color: #e8590c;
+  background: #fff0dc;
+  box-shadow: 0 0 0 2px #ffd8a8;
 }
 
-.mode-name {
+.mode:disabled {
+  cursor: default;
+}
+
+.mode:disabled:not(.on) {
+  opacity: 0.4;
+}
+
+.mode-summary {
   margin: 0;
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.btn:focus-visible,
+.choice:focus-visible,
+.mode:focus-visible,
+.field:focus-visible {
+  outline: 3px solid #4dabf7;
+  outline-offset: 2px;
 }
