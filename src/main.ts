@@ -74,7 +74,8 @@ function inRoom(): boolean {
 }
 
 function startSolo(): void {
-  if (inRoom()) return;
+  // 방에 들어가는 중에 혼자 하기를 시작하면, 들어간 순간 그 판이 사라지므로 막습니다.
+  if (inRoom() || mp?.stage === 'joining') return;
   audio.unlock();
   effects.clear();
   session = new Session(Math.floor(Math.random() * 0x7fffffff), { boost });

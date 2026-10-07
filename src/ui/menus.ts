@@ -65,7 +65,9 @@ export function createMenus(root: HTMLElement, actions: MenuActions): { show(vie
   function title(view: Extract<MenuView, { kind: 'title' }>): HTMLElement {
     const panel = el('div', 'panel');
     panel.append(el('h1', 'title', '수박게임'), el('p', 'sub', `최고 점수 ${view.best}`));
-    panel.append(button('혼자 하기', actions.solo, 'btn primary'));
+    const solo = button('혼자 하기', actions.solo, 'btn primary');
+    solo.disabled = view.busy;
+    panel.append(solo);
 
     const name = el('input', 'field');
     name.maxLength = 12;

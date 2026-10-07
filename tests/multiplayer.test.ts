@@ -368,3 +368,53 @@ describe('판 진행과 승패', () => {
     expect(host.mp.rivals()[0].state).toBe('out');
   });
 });
+
+describe('검토에서 찾은 문제', () => {
+  it('방장이 바뀌어도, 새 방장이 보고 있는 이미 끝난 판에 대기실 사람이 끌려 들어가지 않습니다', async () => {
+    const hub = new FakeHub();
+    const a = client(hub, 'a', 1);
+    const b = client(hub, 'b', 2);
+    const c = client(hub, 'c', 3);
+    await a.mp.create('가');
+    hub.now += 10;
+    await b.mp.join(a.mp.code, '나');
+    hub.now += 10;
+    await c.mp.join(a.mp.code, '다');
+    pass(hub, SETTLE_MS + 100, a, b, c);
+    b.mp.toggleReady();
+    c.mp.toggleReady();
+    pass(hub, 100, a, b, c);
+    a.mp.start();
+    pass(hub, COUNTDOWN_MS + 200, a, b, c);
+    a.mp.report(status({ state: 'win', winTicks: 100, top: 10 }));
+    pass(hub, 300, a, b, c);
+    expect(b.mp.stage).toBe('result');
+    // 가와 다는 대기실로 돌아가고, 나는 결과 화면에 남아 있습니다.
+    a.mp.backToLobby();
+    c.mp.backToLobby();
+    c.mp.toggleReady();
+    pass(hub, 300, a, b, c);
+    a.mp.leave();
+    pass(hub, 600, b, c);
+    expect(c.mp.stage).toBe('lobby');
+  });
+
+  it('소식이 끊겨 탈락으로 본 상대는 결과 화면에서도 탈락으로 남고, 남은 사람이 승자로 표시됩니다', async () => {
+    const hub = new FakeHub();
+    const { host, guest } = await startedPair(hub);
+    guest.mp.report(status({ score: 500 }));
+    host.mp.report(status({ score: 600 }));
+    pass(hub, 300, host, guest);
+    pass(hub, GONE_MS + 500, host);
+    expect(host.mp.rivals()[0].state).toBe('out');
+    host.mp.report(status({ score: 600, state: 'out' }));
+    pass(hub, 300, host);
+    expect(host.mp.stage).toBe('result');
+    pass(hub, 1000, host);
+    expect(host.mp.rivals()[0].state).toBe('out');
+    const rows = host.mp.resultRows();
+    expect(rows.map((row) => row.name)).toEqual(['방장', '손님']);
+    expect(rows[0].winner).toBe(true);
+    expect(rows[0].me).toBe(true);
+  });
+});

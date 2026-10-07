@@ -91,6 +91,10 @@ interface Memory {
   prev: BinFruit[];
   next: BinFruit[];
   binAt: number;
+  /** 판이 진행되는 동안 소식이 오래 끊겨 탈락으로 본 상태. 소식이 다시 오면 풀립니다. */
+  dropped: boolean;
+  /** 판이 끝난 순간의 상태. 결과 화면에서는 이 값을 유지해서, 뒤늦은 변화로 순위가 뒤집히지 않게 합니다. */
+  frozen: PlayState | null;
 }
 
 const IDLE_STATUS: LocalStatus = { score: 0, top: 0, state: 'play', winTicks: null, fruits: [] };
@@ -112,6 +116,8 @@ export class Multiplayer {
   private games = 0;
   /** 대기실에서 마지막으로 본 방장의 판 이름. 아직 본 적이 없으면 undefined입니다. */
   private hostGameSeen: string | null | undefined = undefined;
+  /** hostGameSeen을 기록했을 때의 방장. 방장이 바뀌면 새 방장의 판 이름은 처음 보는 값으로 다룹니다. */
+  private hostSeenPeer: string | null = null;
   private countdownEnd = 0;
   private lastSent = 0;
   private sentState: PlayState = 'play';
@@ -256,7 +262,10 @@ export class Multiplayer {
       if (mine && host && host.peer !== mine.peer) {
         const game = host.game;
         // 방장의 판 이름이 내가 보고 있는 동안 새 값으로 바뀌었을 때만 막 시작한 판으로 봅니다.
-        const fresh = this.hostGameSeen !== undefined && game !== null && game !== this.hostGameSeen;
+        // 방장이 바뀐 직후에는 새 방장이 예전 판의 결과 화면에 남아 있을 수 있으므로, 그 판 이름을 새 판으로 보지 않습니다.
+        const sameHost = this.hostSeenPeer === host.peer;
+        const fresh = sameHost && this.hostGameSeen !== undefined && game !== null && game !== this.hostGameSeen;
+        this.hostSeenPeer = host.peer;
         this.hostGameSeen = game;
         if (fresh && game !== null && host.phase === 'play' && this.ready && this.settled()) {
           this.begin(game, host.seed);
@@ -272,8 +281,12 @@ export class Multiplayer {
     }
     if (this.stage === 'playing') {
       if (now - this.lastSent >= SEND_INTERVAL || this.status.state !== this.sentState) this.send(now);
-      if (judge(this.entries(now)).over) {
+      for (const memory of this.memory.values()) {
+        if (memory.live && now - this.heard(memory) >= GONE_MS) memory.dropped = true;
+      }
+      if (judge(this.entries()).over) {
         this.send(now);
+        for (const memory of this.memory.values()) memory.frozen = this.stateOf(memory);
         this.setStage('result');
       }
     }
@@ -316,14 +329,14 @@ export class Multiplayer {
       name: memory.player.name,
       score: memory.player.score,
       top: memory.player.top,
-      state: this.stateOf(memory, now),
+      state: this.stateOf(memory),
       stale: this.stage === 'playing' && memory.live && now - this.heard(memory) >= STALE_MS,
       fruits: this.blend(memory, now),
     }));
   }
 
   resultRows(): ResultRow[] {
-    const entries = this.entries(this.now());
+    const entries = this.entries();
     const verdict = judge(entries);
     return rank(entries).map((entry) => ({
       name: entry.name,
@@ -405,6 +418,8 @@ export class Multiplayer {
           prev: player.bin,
           next: player.bin,
           binAt: now,
+          dropped: false,
+          frozen: null,
         });
         continue;
       }
@@ -413,6 +428,7 @@ export class Multiplayer {
         memory.next = player.bin;
         memory.binAt = now;
         memory.beatAt = now;
+        if (this.stage === 'playing') memory.dropped = false;
       }
       memory.player = player;
       memory.live = true;
@@ -424,18 +440,22 @@ export class Multiplayer {
     return Math.max(memory.beatAt, this.countdownEnd);
   }
 
-  /** 방에서 사라졌거나 소식이 오래 끊긴 사람은 탈락으로 봅니다. 수박을 만든 기록은 그대로 둡니다. */
-  private stateOf(memory: Memory, now: number): PlayState {
+  /**
+   * 방에서 사라졌거나 소식이 오래 끊긴 사람은 탈락으로 봅니다. 수박을 만든 기록은 그대로 둡니다.
+   * 결과 화면에서는 판이 끝난 순간의 상태를 유지하되, 거의 동시에 수박을 만든 사람의 소식이 늦게 온 경우만 반영합니다.
+   */
+  private stateOf(memory: Memory): PlayState {
+    if (memory.player.state === 'win') return 'win';
+    if (memory.frozen !== null) return memory.frozen;
     if (memory.player.state !== 'play') return memory.player.state;
-    const gone = !memory.live || (this.stage === 'playing' && now - this.heard(memory) >= GONE_MS);
-    return gone ? 'out' : 'play';
+    return memory.dropped || !memory.live ? 'out' : 'play';
   }
 
   private blend(memory: Memory, now: number): BinFruit[] {
     return blendBins(memory.prev, memory.next, (now - memory.binAt) / SEND_INTERVAL);
   }
 
-  private entries(now: number): (Entry & { name: string; me: boolean })[] {
+  private entries(): (Entry & { name: string; me: boolean })[] {
     const list: (Entry & { name: string; me: boolean })[] = [
       {
         peer: this.myPeer,
@@ -452,7 +472,7 @@ export class Multiplayer {
         name: memory.player.name,
         me: false,
         score: memory.player.score,
-        state: this.stateOf(memory, now),
+        state: this.stateOf(memory),
         winTicks: memory.player.winTicks,
       });
     }
