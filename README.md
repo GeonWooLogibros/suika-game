@@ -69,7 +69,12 @@ npm run dev
 
 브라우저의 localStorage에 최고 점수(`suika-game.best.v1`)와 이름(`suika-game.name.v1`)만 저장합니다.
 
+## 배포
+
+- claude.ai 아티팩트: https://claude.ai/artifact/1Xv98iUohfAGdUT9K7bFNL (같이 하기는 claude.ai에 로그인한 사람끼리 됩니다)
+- 다시 올릴 때는 `game-projects` 폴더에서 `node tools/build-artifact.mjs suika-game "수박게임" <출력 파일>`로 HTML 한 장을 만들고, 위 주소를 지정해서 발행합니다. 발행할 때 `room` 기능을 선언해야 같이 하기가 됩니다.
+
 ## 아직 하지 않은 것
 
-- claude.ai 아티팩트와 공개 사이트에 올리는 작업은 하지 않았습니다. 아티팩트로 올린 뒤에는 `src/net/connect.ts`의 `CLAUDE_GAME_URL`에 그 주소를 넣어야 초대 링크가 만들어집니다.
+- 공개 사이트(로그인 없이 같이 하기)에는 올리지 않았습니다. GitHub 공개 저장소와 Pages 설정이 필요합니다.
 - 서로 다른 기기 사이의 같이 하기는 확인하지 않았습니다. 같은 컴퓨터의 탭 두 개로만 확인했습니다.

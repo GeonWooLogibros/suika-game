@@ -1,10 +1,7 @@
 import type { LobbyLike } from './types';
 
-/**
- * claude.ai에 게시한 게임 링크. 그 안에서 열었을 때 초대 링크는 이 주소 뒤에 #방코드를 붙입니다.
- * 게시한 뒤에 채웁니다. 비어 있으면 초대할 때 방 코드만 보여 줍니다.
- */
-const CLAUDE_GAME_URL = '';
+/** claude.ai에 게시한 게임 링크. 그 안에서 열었을 때 초대 링크는 이 주소 뒤에 #방코드를 붙입니다. */
+const CLAUDE_GAME_URL = 'https://claude.ai/artifact/1Xv98iUohfAGdUT9K7bFNL';
 
 export interface Connection {
   lobby: LobbyLike | null;
