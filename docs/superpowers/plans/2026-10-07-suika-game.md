@@ -2697,7 +2697,7 @@ describe('방 코드', () => {
 
 describe('다른 사람이 보낸 값 읽기', () => {
   it('이름에서 제어 문자와 보이지 않는 글자를 지우고 12자로 줄입니다', () => {
-    expect(cleanName('  가나\u0000다​  ')).toBe('가나다');
+    expect(cleanName('  가나\u0000다\u200b  ')).toBe('가나다');
     expect(cleanName('가나다라마바사아자차카타파하')).toBe('가나다라마바사아자차카타');
     expect(cleanName('   ')).toBe('플레이어');
     expect(cleanName(123)).toBe('플레이어');
@@ -2918,7 +2918,7 @@ export function roomName(code: string): string {
 export function cleanName(value: unknown, fallback = '플레이어'): string {
   if (typeof value !== 'string') return fallback;
   // eslint-disable-next-line no-control-regex
-  const text = value.replace(/[\u0000-\u001f\u007f-\u009f​-‏ -‮⁠-⁯]/g, '').trim();
+  const text = value.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f]/g, '').trim();
   return text ? Array.from(text).slice(0, NAME_LIMIT).join('') : fallback;
 }
 
