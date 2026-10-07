@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { mulberry32 } from '../src/game/random';
 import {
   MAX_PLAYERS,
+  MODES,
+  readMode,
   canStart,
   cleanName,
   judge,
@@ -65,6 +67,8 @@ describe('다른 사람이 보낸 값 읽기', () => {
       winTicks: null,
       bin: [],
       beat: 0,
+      mode: 'race',
+      attack: 0,
     });
   });
 
@@ -216,5 +220,64 @@ describe('승패', () => {
 
   it('혼자 남은 사람이 진행 중이면 계속합니다', () => {
     expect(judge([entry('a', 'play', 10), entry('b', 'out', 50), entry('c', 'out', 70)]).over).toBe(false);
+  });
+});
+
+describe('모드', () => {
+  it('네 가지 모드가 있고 이름과 설명이 있습니다', () => {
+    expect(MODES.map((mode) => mode.id)).toEqual(['race', 'timed', 'endless', 'battle']);
+    for (const mode of MODES) {
+      expect(mode.name.length).toBeGreaterThan(0);
+      expect(mode.summary.endsWith('니다.')).toBe(true);
+    }
+  });
+
+  it('모르는 값은 수박 먼저 만들기로 읽습니다', () => {
+    expect(readMode('battle')).toBe('battle');
+    expect(readMode('timed')).toBe('timed');
+    expect(readMode('hack')).toBe('race');
+    expect(readMode(undefined)).toBe('race');
+  });
+
+  it('보낸 값에서 모드, 보낸 방해 구슬의 수, 시간 종료 상태를 읽습니다', () => {
+    const player = readPlayer('p', { mode: 'battle', atk: 12, st: 'done' });
+    expect(player.mode).toBe('battle');
+    expect(player.attack).toBe(12);
+    expect(player.state).toBe('done');
+    expect(readPlayer('p', { atk: -4 }).attack).toBe(0);
+    expect(readPlayer('p', { atk: 'many' }).attack).toBe(0);
+  });
+
+  const entry = (peer: string, state: Entry['state'], score: number, winTicks: number | null = null): Entry => ({
+    peer,
+    state,
+    score,
+    winTicks,
+  });
+
+  it('점수전은 수박을 만들어도 끝나지 않고, 모두 끝나면 점수가 높은 사람이 이깁니다', () => {
+    for (const mode of ['timed', 'endless'] as const) {
+      expect(judge([entry('a', 'play', 900), entry('b', 'out', 100)], mode).over).toBe(false);
+      expect(judge([entry('a', 'play', 10), entry('b', 'done', 500)], mode).over).toBe(false);
+      const done = [entry('a', 'out', 300), entry('b', 'done', 250), entry('c', 'done', 700)];
+      expect(judge(done, mode)).toEqual({ over: true, winner: 'c' });
+      expect(rank(done, mode).map((e) => e.peer)).toEqual(['c', 'a', 'b']);
+    }
+  });
+
+  it('방해 대전은 한 사람만 남으면 끝나고, 남은 사람이 점수와 상관없이 이깁니다', () => {
+    const playing = [entry('a', 'play', 10), entry('b', 'play', 900), entry('c', 'out', 500)];
+    expect(judge(playing, 'battle').over).toBe(false);
+    const last = [entry('a', 'play', 10), entry('b', 'out', 900), entry('c', 'out', 500)];
+    expect(judge(last, 'battle')).toEqual({ over: true, winner: 'a' });
+    expect(rank(last, 'battle').map((e) => e.peer)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('방해 대전에서 동시에 모두 탈락하면 점수가 높은 사람이 이깁니다', () => {
+    expect(judge([entry('a', 'out', 10), entry('b', 'out', 900)], 'battle')).toEqual({ over: true, winner: 'b' });
+  });
+
+  it('모드를 주지 않으면 수박 먼저 만들기 규칙을 씁니다', () => {
+    expect(judge([entry('a', 'play', 900), entry('b', 'win', 300, 4000)])).toEqual({ over: true, winner: 'b' });
   });
 });

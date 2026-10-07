@@ -181,3 +181,24 @@ body {
   letter-spacing: 4px;
   margin: 0;
 }
+
+.modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.modes .btn.small {
+  width: 100%;
+}
+
+.btn.on {
+  background: #ffe8cc;
+  border-color: #e8590c;
+}
+
+.mode-name {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}

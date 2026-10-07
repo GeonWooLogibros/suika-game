@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LINE_Y, WATERMELON } from '../src/game/fruits';
-import { OVERFLOW_TICKS, isAboveLine, mergeResult, nextOverflow, pickMerges } from '../src/game/rules';
+import { OVERFLOW_TICKS, garbageFor, isAboveLine, mergeResult, nextOverflow, pickMerges } from '../src/game/rules';
 
 describe('합치기', () => {
   it('다음 단계가 되고, 수박끼리는 사라집니다', () => {
@@ -51,5 +51,16 @@ describe('선 넘음', () => {
     expect(ticks).toBe(OVERFLOW_TICKS - 1);
     expect(nextOverflow(ticks, false)).toBe(0);
     expect(nextOverflow(ticks, true)).toBe(OVERFLOW_TICKS);
+  });
+});
+
+describe('방해 구슬의 수', () => {
+  it('감부터 큰 과일을 만들수록 많이 보내고, 그보다 작은 과일은 보내지 않습니다', () => {
+    expect([0, 1, 2, 3].map(garbageFor)).toEqual([0, 0, 0, 0]);
+    expect([4, 5, 6, 7, 8, 9, 10].map(garbageFor)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it('수박 둘을 합쳐 없애면 가장 많이 보냅니다', () => {
+    expect(garbageFor(null)).toBe(8);
   });
 });

@@ -10,6 +10,7 @@ export const NAME_LIMIT = 12;
 /** 한 방에 들어올 수 있는 최대 인원. */
 export const MAX_PLAYERS = 4;
 const MAX_SCORE = 9_999_999;
+const MAX_ATTACK = 99_999;
 
 /** 헷갈리는 글자(0, o, 1, l, i)를 뺀 다섯 글자 방 코드를 만듭니다. */
 export function makeRoomCode(rand: () => number): string {
@@ -36,8 +37,30 @@ export function cleanName(value: unknown, fallback = '플레이어'): string {
   return text ? Array.from(text).slice(0, NAME_LIMIT).join('') : fallback;
 }
 
-/** 판 안에서의 상태: 진행 중, 탈락, 수박 완성. */
-export type PlayState = 'play' | 'out' | 'win';
+/** 판 안에서의 상태: 진행 중, 탈락, 수박 완성, 시간 종료. */
+export type PlayState = 'play' | 'out' | 'win' | 'done';
+
+/** 방장이 대기실에서 고르는 모드. */
+export type Mode = 'race' | 'timed' | 'endless' | 'battle';
+
+/** 시간 제한 점수전의 길이(초). */
+export const TIMED_SECONDS = 180;
+
+export const MODES: readonly { id: Mode; name: string; summary: string }[] = [
+  { id: 'race', name: '수박 먼저 만들기', summary: '수박을 가장 먼저 만드는 사람이 이깁니다.' },
+  { id: 'timed', name: '시간 제한 점수전', summary: '3분 동안 점수를 가장 많이 얻는 사람이 이깁니다.' },
+  { id: 'endless', name: '끝까지 점수전', summary: '모두 선을 넘을 때까지 하고, 점수가 가장 높은 사람이 이깁니다.' },
+  {
+    id: 'battle',
+    name: '방해 대전',
+    summary: '큰 과일을 만들면 상대의 통에 방해 구슬이 떨어집니다. 마지막까지 남는 사람이 이깁니다.',
+  },
+];
+
+/** 다른 사람이 보낸 모드 값을 읽습니다. 모르는 값은 기본 모드로 봅니다. */
+export function readMode(value: unknown): Mode {
+  return MODES.find((mode) => mode.id === value)?.id ?? 'race';
+}
 
 /** 방 안에서 한 사람이 알리는 상태. */
 export interface Player {
@@ -62,6 +85,10 @@ export interface Player {
   bin: BinFruit[];
   /** 보낼 때마다 1씩 커지는 번호. 이 값이 바뀌는지를 보고 연결이 살아 있는지 판단합니다. */
   beat: number;
+  /** 방장이 고른 모드. 방장의 값만 씁니다. */
+  mode: Mode;
+  /** 방해 대전에서 이 사람이 지금까지 보낸 방해 구슬의 수. */
+  attack: number;
 }
 
 const num = (value: unknown, fallback = 0): number =>
@@ -71,7 +98,8 @@ const whole = (value: unknown, max: number): number => Math.max(0, Math.min(max,
 
 /** 다른 사람이 보낸 상태를 믿지 않고, 값마다 형식과 범위를 확인해서 읽습니다. */
 export function readPlayer(peer: string, presence: Readonly<Record<string, unknown>>): Player {
-  const state: PlayState = presence.st === 'win' ? 'win' : presence.st === 'out' ? 'out' : 'play';
+  const state: PlayState =
+    presence.st === 'win' ? 'win' : presence.st === 'out' ? 'out' : presence.st === 'done' ? 'done' : 'play';
   const ticks = num(presence.wt, -1);
   return {
     peer,
@@ -89,6 +117,8 @@ export function readPlayer(peer: string, presence: Readonly<Record<string, unkno
     winTicks: state !== 'win' ? null : ticks > 0 ? Math.floor(ticks) : Number.MAX_SAFE_INTEGER,
     bin: decodeBin(presence.b) ?? [],
     beat: whole(presence.n, Number.MAX_SAFE_INTEGER),
+    mode: readMode(presence.mode),
+    attack: whole(presence.atk, MAX_ATTACK),
   };
 }
 
@@ -128,27 +158,40 @@ export interface Entry {
   winTicks: number | null;
 }
 
-/** 순위. 수박을 만든 사람이 앞이고(적은 걸음 순서), 나머지는 점수가 높은 순서입니다. */
-export function rank<T extends Entry>(entries: readonly T[]): T[] {
+const byPeer = (a: Entry, b: Entry): number => (a.peer < b.peer ? -1 : a.peer > b.peer ? 1 : 0);
+
+/**
+ * 순위. 모드마다 앞에 서는 사람이 다릅니다.
+ * 수박 먼저 만들기는 수박을 만든 사람(적은 걸음 순서), 방해 대전은 끝까지 남은 사람이 앞이고,
+ * 그 밖에는 점수가 높은 순서입니다. 끝까지 같으면 이름표 순서로 정해서 모든 화면이 같은 결과를 냅니다.
+ */
+export function rank<T extends Entry>(entries: readonly T[], mode: Mode = 'race'): T[] {
+  const lead: PlayState | null = mode === 'race' ? 'win' : mode === 'battle' ? 'play' : null;
   return [...entries].sort((a, b) => {
-    const wonA = a.state === 'win';
-    const wonB = b.state === 'win';
-    if (wonA !== wonB) return wonA ? -1 : 1;
-    if (wonA && wonB) {
+    const leadA = a.state === lead;
+    const leadB = b.state === lead;
+    if (leadA !== leadB) return leadA ? -1 : 1;
+    if (mode === 'race' && leadA && leadB) {
       const ticksA = a.winTicks ?? Number.MAX_SAFE_INTEGER;
       const ticksB = b.winTicks ?? Number.MAX_SAFE_INTEGER;
       if (ticksA !== ticksB) return ticksA - ticksB;
     }
     if (a.score !== b.score) return b.score - a.score;
-    return a.peer < b.peer ? -1 : a.peer > b.peer ? 1 : 0;
+    return byPeer(a, b);
   });
 }
 
-/** 판이 끝났는지와 이긴 사람. 누군가 수박을 만들었거나 모두 탈락했으면 끝납니다. */
-export function judge(entries: readonly Entry[]): { over: boolean; winner: string | null } {
+/**
+ * 판이 끝났는지와 이긴 사람.
+ * 수박 먼저 만들기는 누군가 수박을 만들었을 때, 방해 대전은 한 사람만 남았을 때 끝나고,
+ * 어느 모드든 진행 중인 사람이 없으면 끝납니다.
+ */
+export function judge(entries: readonly Entry[], mode: Mode = 'race'): { over: boolean; winner: string | null } {
   if (entries.length === 0) return { over: false, winner: null };
-  const anyWin = entries.some((entry) => entry.state === 'win');
-  const allDone = entries.every((entry) => entry.state !== 'play');
-  if (!anyWin && !allDone) return { over: false, winner: null };
-  return { over: true, winner: rank(entries)[0].peer };
+  const playing = entries.filter((entry) => entry.state === 'play').length;
+  const over =
+    playing === 0 ||
+    (mode === 'race' && entries.some((entry) => entry.state === 'win')) ||
+    (mode === 'battle' && entries.length >= 2 && playing <= 1);
+  return over ? { over: true, winner: rank(entries, mode)[0].peer } : { over: false, winner: null };
 }

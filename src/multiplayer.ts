@@ -11,6 +11,7 @@ import {
   roomName,
   seats,
   type Entry,
+  type Mode,
   type PlayState,
   type Player,
 } from './game/match';
@@ -27,6 +28,8 @@ export const SETTLE_MS = 2000;
 export const STALE_MS = 3000;
 /** 상대의 소식이 이만큼 끊기면 나간 것으로 봅니다. */
 export const GONE_MS = 10000;
+/** 방해 대전에서 한 사람에게서 한 번에 받는 방해 구슬의 상한. 잘못된 값이 와도 통이 한꺼번에 차지 않게 합니다. */
+const GARBAGE_TAKE_MAX = 20;
 
 export type Stage = 'idle' | 'joining' | 'lobby' | 'countdown' | 'playing' | 'result';
 
@@ -37,6 +40,8 @@ export interface LocalStatus {
   state: PlayState;
   winTicks: number | null;
   fruits: readonly BinFruit[];
+  /** 방해 대전에서 지금까지 보낸 방해 구슬의 수. */
+  attack: number;
 }
 
 export interface LobbyRow {
@@ -55,6 +60,8 @@ export interface LobbyView {
   isHost: boolean;
   ready: boolean;
   canStart: boolean;
+  /** 방장이 고른 모드. */
+  mode: Mode;
   /** 방에 들어온 직후의 기다림이 끝났는지 여부. 끝나기 전에는 버튼을 보여 주지 않습니다. */
   settled: boolean;
 }
@@ -95,9 +102,11 @@ interface Memory {
   dropped: boolean;
   /** 판이 끝난 순간의 상태. 결과 화면에서는 이 값을 유지해서, 뒤늦은 변화로 순위가 뒤집히지 않게 합니다. */
   frozen: PlayState | null;
+  /** 이 사람이 보낸 방해 구슬 가운데 내가 이미 받은 수. */
+  attackSeen: number;
 }
 
-const IDLE_STATUS: LocalStatus = { score: 0, top: 0, state: 'play', winTicks: null, fruits: [] };
+const IDLE_STATUS: LocalStatus = { score: 0, top: 0, state: 'play', winTicks: null, fruits: [], attack: 0 };
 
 /** 대기실과 대전의 상태 기계. 방의 presence를 읽고 쓰기만 하며, 화면 요소는 사용하지 않습니다. */
 export class Multiplayer {
@@ -105,6 +114,8 @@ export class Multiplayer {
   error: string | null = null;
   code = '';
   seed = 0;
+  /** 지금 판(대기실에서는 다음 판)의 모드. 방장이 고릅니다. */
+  mode: Mode = 'race';
   private room: NamedRoomLike | null = null;
   private name = '';
   private created = false;
@@ -182,9 +193,11 @@ export class Multiplayer {
     this.ready = false;
     this.game = null;
     this.hostGameSeen = undefined;
+    this.mode = 'race';
     this.memory.clear();
     this.patch({
       name: this.name,
+      mode: this.mode,
       owner: created,
       since: this.joinedAt,
       phase: 'wait',
@@ -218,13 +231,37 @@ export class Multiplayer {
     this.patch({ ready: this.ready });
   }
 
+  /** 방장이 대기실에서 모드를 고릅니다. 방장이 아니면 아무 일도 하지 않습니다. */
+  setMode(mode: Mode): void {
+    if (this.stage !== 'lobby') return;
+    const { mine, host } = this.read();
+    if (!mine || !host || host.peer !== mine.peer) return;
+    this.mode = mode;
+    this.patch({ mode });
+  }
+
+  /**
+   * 방해 대전에서 상대가 새로 보낸 방해 구슬의 수를 꺼냅니다. 한 번 꺼낸 것은 다시 세지 않습니다.
+   * 탈락한 뒤나 다른 모드에서는 0입니다.
+   */
+  takeGarbage(): number {
+    if (this.stage !== 'playing' || this.mode !== 'battle' || this.status.state !== 'play') return 0;
+    let total = 0;
+    for (const memory of this.memory.values()) {
+      const fresh = memory.player.attack - memory.attackSeen;
+      memory.attackSeen = memory.player.attack;
+      if (fresh > 0) total += Math.min(fresh, GARBAGE_TAKE_MAX);
+    }
+    return total;
+  }
+
   /** 방장이 판을 시작합니다. 방장이 아니거나 모두 준비하지 않았으면 아무 일도 하지 않습니다. */
   start(): void {
     if (this.stage !== 'lobby' || !this.settled()) return;
     const { players, mine, host } = this.read();
     if (!mine || !host || host.peer !== mine.peer || !canStart(players, host.peer)) return;
     const game = makeRoomCode(this.random) + (++this.games).toString(36);
-    this.begin(game, Math.floor(this.random() * 0x7ffffffe) + 1);
+    this.begin(game, Math.floor(this.random() * 0x7ffffffe) + 1, this.mode);
   }
 
   backToLobby(): void {
@@ -268,7 +305,7 @@ export class Multiplayer {
         this.hostSeenPeer = host.peer;
         this.hostGameSeen = game;
         if (fresh && game !== null && host.phase === 'play' && this.ready && this.settled()) {
-          this.begin(game, host.seed);
+          this.begin(game, host.seed, host.mode);
         }
       }
       return;
@@ -284,7 +321,7 @@ export class Multiplayer {
       for (const memory of this.memory.values()) {
         if (memory.live && now - this.heard(memory) >= GONE_MS) memory.dropped = true;
       }
-      if (judge(this.entries()).over) {
+      if (judge(this.entries(), this.mode).over) {
         this.send(now);
         for (const memory of this.memory.values()) memory.frozen = this.stateOf(memory);
         this.setStage('result');
@@ -317,6 +354,7 @@ export class Multiplayer {
       isHost,
       ready: this.ready,
       canStart: isHost && this.settled() && canStart(players, host?.peer ?? null),
+      mode: host?.mode ?? this.mode,
       settled: this.settled(),
     };
   }
@@ -337,8 +375,8 @@ export class Multiplayer {
 
   resultRows(): ResultRow[] {
     const entries = this.entries();
-    const verdict = judge(entries);
-    return rank(entries).map((entry) => ({
+    const verdict = judge(entries, this.mode);
+    return rank(entries, this.mode).map((entry) => ({
       name: entry.name,
       score: entry.score,
       state: entry.state,
@@ -378,16 +416,30 @@ export class Multiplayer {
     return { players, mine, host: players.find((player) => player.peer === hostPeer) ?? null };
   }
 
-  private begin(game: string, seed: number): void {
+  private begin(game: string, seed: number, mode: Mode): void {
     this.game = game;
     this.seed = seed;
+    this.mode = mode;
     this.ready = false;
     this.status = IDLE_STATUS;
     this.sentState = 'play';
     this.beat = 0;
     this.memory.clear();
     this.countdownEnd = this.now() + COUNTDOWN_MS;
-    this.patch({ phase: 'play', game, seed, ready: false, score: 0, top: 0, st: 'play', wt: null, b: '', n: 0 });
+    this.patch({
+      phase: 'play',
+      game,
+      seed,
+      mode,
+      ready: false,
+      score: 0,
+      top: 0,
+      st: 'play',
+      wt: null,
+      b: '',
+      n: 0,
+      atk: 0,
+    });
     this.setStage('countdown');
   }
 
@@ -401,6 +453,7 @@ export class Multiplayer {
       wt: this.status.winTicks,
       b: encodeBin(this.status.fruits),
       n: ++this.beat,
+      atk: this.status.attack,
     });
   }
 
@@ -420,6 +473,7 @@ export class Multiplayer {
           binAt: now,
           dropped: false,
           frozen: null,
+          attackSeen: player.attack,
         });
         continue;
       }

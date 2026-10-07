@@ -1,5 +1,5 @@
 import Matter from 'matter-js';
-import { BIN_H, BIN_W, FRUITS } from '../game/fruits';
+import { BIN_H, BIN_W, radiusOf } from '../game/fruits';
 import { STEP_MS } from '../game/rules';
 
 const { Bodies, Composite, Engine, Events } = Matter;
@@ -62,7 +62,7 @@ export class World {
   }
 
   add(tier: number, x: number, y: number, settled = false): number {
-    const body = Bodies.circle(x, y, FRUITS[tier].radius, {
+    const body = Bodies.circle(x, y, radiusOf(tier), {
       restitution: RESTITUTION,
       friction: FRICTION,
       frictionAir: AIR_FRICTION,
@@ -114,7 +114,7 @@ export class World {
       x: item.body.position.x,
       y: item.body.position.y,
       angle: item.body.angle,
-      radius: FRUITS[item.tier].radius,
+      radius: radiusOf(item.tier),
       settled: item.settled,
     };
   }

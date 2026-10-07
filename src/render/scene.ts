@@ -1,4 +1,4 @@
-import { BIN_H, BIN_W, DROP_Y, FRUITS, LINE_Y } from '../game/fruits';
+import { BIN_H, BIN_W, DROP_Y, FRUITS, LINE_Y, STONE, radiusOf } from '../game/fruits';
 import type { FruitBody } from '../physics/world';
 import type { Effects } from './effects';
 import { drawFruit } from './fruit';
@@ -13,7 +13,7 @@ export interface RivalDraw {
   name: string;
   score: number;
   top: number;
-  state: 'play' | 'out' | 'win';
+  state: 'play' | 'out' | 'win' | 'done';
   /** 한동안 소식이 없어서 연결이 불안정해 보이는지 여부. */
   stale: boolean;
   fruits: readonly { x: number; y: number; tier: number }[];
@@ -36,6 +36,10 @@ export interface Scene {
   countdown: number | null;
   /** 통 위에 겹쳐서 보여 줄 안내 문구. */
   note: string | null;
+  /** 시간 제한 점수전의 남은 시간(초). 시간 제한이 없으면 null입니다. */
+  timeLeft: number | null;
+  /** 방해 대전에서 곧 떨어질 방해 구슬의 수. */
+  incoming: number;
 }
 
 function box(ctx: CanvasRenderingContext2D, rect: Rect, radius: number): void {
@@ -99,6 +103,9 @@ function drawBin(ctx: CanvasRenderingContext2D, scene: Scene): void {
     ctx.stroke();
     drawFruit(ctx, scene.held.tier, scene.held.x, DROP_Y, FRUITS[scene.held.tier].radius);
   }
+  // 곧 떨어질 방해 구슬을 통의 왼쪽 위에 작게 보여 줍니다.
+  const shown = Math.min(scene.incoming, 10);
+  for (let i = 0; i < shown; i++) drawFruit(ctx, STONE, 14 + i * 20, 14, 8);
   for (const fruit of scene.fruits) {
     drawFruit(ctx, fruit.tier, fruit.x, fruit.y, fruit.radius * scene.effects.scaleOf(fruit.id), fruit.angle);
   }
@@ -114,6 +121,17 @@ function drawBin(ctx: CanvasRenderingContext2D, scene: Scene): void {
   const cy = bin.y + bin.h / 2;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  if (scene.timeLeft !== null) {
+    const seconds = Math.max(0, Math.ceil(scene.timeLeft));
+    const text = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+    ctx.font = `800 ${Math.max(14, Math.min(22, bin.w / 14))}px ${FONT}`;
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#ffffff';
+    ctx.strokeText(text, cx, bin.y + 20);
+    // 10초가 남으면 붉게 바꿔서 끝이 가까움을 알립니다.
+    ctx.fillStyle = seconds <= 10 ? '#d63031' : INK;
+    ctx.fillText(text, cx, bin.y + 20);
+  }
   if (scene.note) {
     box(ctx, bin, 10);
     ctx.fillStyle = 'rgba(255,244,220,0.7)';
@@ -151,12 +169,20 @@ function drawRival(ctx: CanvasRenderingContext2D, rect: Rect, rival: RivalDraw):
   const scale = rect.w / BIN_W;
   ctx.scale(scale, scale);
   for (const fruit of rival.fruits) {
-    const kind = FRUITS[fruit.tier];
-    if (kind) drawFruit(ctx, fruit.tier, fruit.x, fruit.y, kind.radius);
+    drawFruit(ctx, fruit.tier, fruit.x, fruit.y, radiusOf(fruit.tier));
   }
   ctx.restore();
 
-  const label = rival.state === 'win' ? '수박 완성' : rival.state === 'out' ? '탈락' : rival.stale ? '연결 불안정' : null;
+  const label =
+    rival.state === 'win'
+      ? '수박 완성'
+      : rival.state === 'out'
+        ? '탈락'
+        : rival.state === 'done'
+          ? '시간 종료'
+          : rival.stale
+            ? '연결 불안정'
+            : null;
   if (label) {
     box(ctx, rect, 6);
     ctx.fillStyle = 'rgba(255,244,220,0.75)';

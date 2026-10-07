@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import type { Mode } from '../src/game/match';
 import { mulberry32 } from '../src/game/random';
 import { COUNTDOWN_MS, GONE_MS, Multiplayer, SETTLE_MS, STALE_MS, type LocalStatus, type Stage } from '../src/multiplayer';
 import type { LobbyLike, NamedRoomLike, PeerLike } from '../src/net/types';
@@ -87,17 +88,19 @@ const status = (patch: Partial<LocalStatus> = {}): LocalStatus => ({
   state: 'play',
   winTicks: null,
   fruits: [],
+  attack: 0,
   ...patch,
 });
 
 /** 방장과 손님 한 명이 판을 시작해 진행 중인 상태까지 만듭니다. */
-async function startedPair(hub: FakeHub): Promise<{ host: Client; guest: Client }> {
+async function startedPair(hub: FakeHub, mode: Mode = 'race'): Promise<{ host: Client; guest: Client }> {
   const host = client(hub, 'host', 1);
   const guest = client(hub, 'guest', 2);
   await host.mp.create('방장');
   hub.now += 10;
   await guest.mp.join(host.mp.code, '손님');
   pass(hub, SETTLE_MS + 100, host, guest);
+  host.mp.setMode(mode);
   guest.mp.toggleReady();
   pass(hub, 100, host, guest);
   host.mp.start();
@@ -416,5 +419,116 @@ describe('검토에서 찾은 문제', () => {
     expect(rows.map((row) => row.name)).toEqual(['방장', '손님']);
     expect(rows[0].winner).toBe(true);
     expect(rows[0].me).toBe(true);
+  });
+});
+
+describe('모드', () => {
+  it('방장만 모드를 바꿀 수 있고, 손님의 대기실에도 같은 모드가 보입니다', async () => {
+    const hub = new FakeHub();
+    const host = client(hub, 'host');
+    const guest = client(hub, 'guest', 2);
+    await host.mp.create('방장');
+    hub.now += 10;
+    await guest.mp.join(host.mp.code, '손님');
+    pass(hub, SETTLE_MS + 100, host, guest);
+    expect(host.mp.lobbyView()?.mode).toBe('race');
+    guest.mp.setMode('timed');
+    host.mp.setMode('battle');
+    pass(hub, 100, host, guest);
+    expect(host.mp.lobbyView()?.mode).toBe('battle');
+    expect(guest.mp.lobbyView()?.mode).toBe('battle');
+  });
+
+  it('판을 시작하면 손님도 방장이 고른 모드로 진행하고, 다음 판에도 그 모드가 남습니다', async () => {
+    const hub = new FakeHub();
+    const { host, guest } = await startedPair(hub, 'endless');
+    expect(host.mp.mode).toBe('endless');
+    expect(guest.mp.mode).toBe('endless');
+    host.mp.report(status({ state: 'out', score: 10 }));
+    guest.mp.report(status({ state: 'out', score: 20 }));
+    pass(hub, 300, host, guest);
+    host.mp.backToLobby();
+    guest.mp.backToLobby();
+    pass(hub, 200, host, guest);
+    expect(host.mp.lobbyView()?.mode).toBe('endless');
+    expect(guest.mp.lobbyView()?.mode).toBe('endless');
+  });
+
+  it('끝까지 점수전은 수박을 만들어도 계속하고, 모두 탈락하면 점수가 높은 사람이 이깁니다', async () => {
+    const hub = new FakeHub();
+    const { host, guest } = await startedPair(hub, 'endless');
+    host.mp.report(status({ score: 900, top: 10 }));
+    guest.mp.report(status({ score: 950, state: 'out' }));
+    pass(hub, 300, host, guest);
+    expect(host.mp.stage).toBe('playing');
+    host.mp.report(status({ score: 940, top: 10, state: 'out' }));
+    pass(hub, 300, host, guest);
+    expect(host.mp.stage).toBe('result');
+    expect(host.mp.resultRows().map((row) => row.name)).toEqual(['손님', '방장']);
+    expect(guest.mp.resultRows()[0].winner).toBe(true);
+  });
+
+  it('시간 제한 점수전은 모두 시간이 끝나면 점수가 높은 사람이 이깁니다', async () => {
+    const hub = new FakeHub();
+    const { host, guest } = await startedPair(hub, 'timed');
+    host.mp.report(status({ score: 700, state: 'done' }));
+    pass(hub, 300, host, guest);
+    expect(host.mp.stage).toBe('playing');
+    expect(guest.mp.rivals()[0].state).toBe('done');
+    guest.mp.report(status({ score: 300, state: 'done' }));
+    pass(hub, 300, host, guest);
+    expect(guest.mp.stage).toBe('result');
+    expect(guest.mp.resultRows().map((row) => row.name)).toEqual(['방장', '손님']);
+  });
+
+  it('방해 대전은 한 사람만 남으면 끝나고, 남은 사람이 점수가 낮아도 이깁니다', async () => {
+    const hub = new FakeHub();
+    const { host, guest } = await startedPair(hub, 'battle');
+    host.mp.report(status({ score: 50 }));
+    guest.mp.report(status({ score: 800, state: 'out' }));
+    pass(hub, 300, host, guest);
+    expect(host.mp.stage).toBe('result');
+    expect(guest.mp.stage).toBe('result');
+    for (const c of [host, guest]) {
+      const rows = c.mp.resultRows();
+      expect(rows.map((row) => row.name)).toEqual(['방장', '손님']);
+      expect(rows[0].winner).toBe(true);
+      expect(rows[0].state).toBe('play');
+    }
+    // 이긴 사람이 대기실로 돌아가도 진 사람의 결과 화면에서 순위가 뒤집히지 않습니다.
+    host.mp.backToLobby();
+    pass(hub, 500, host, guest);
+    expect(guest.mp.resultRows().map((row) => row.name)).toEqual(['방장', '손님']);
+  });
+
+  it('방해 대전에서 상대가 보낸 방해 구슬을 새로 늘어난 만큼만 받습니다', async () => {
+    const hub = new FakeHub();
+    const { host, guest } = await startedPair(hub, 'battle');
+    expect(guest.mp.takeGarbage()).toBe(0);
+    host.mp.report(status({ attack: 3 }));
+    pass(hub, 300, host, guest);
+    expect(guest.mp.takeGarbage()).toBe(3);
+    expect(guest.mp.takeGarbage()).toBe(0);
+    host.mp.report(status({ attack: 5 }));
+    pass(hub, 300, host, guest);
+    expect(guest.mp.takeGarbage()).toBe(2);
+    expect(host.mp.takeGarbage()).toBe(0);
+  });
+
+  it('한 번에 받는 방해 구슬에는 상한이 있습니다', async () => {
+    const hub = new FakeHub();
+    const { host, guest } = await startedPair(hub, 'battle');
+    host.mp.report(status({ attack: 5000 }));
+    pass(hub, 300, host, guest);
+    expect(guest.mp.takeGarbage()).toBe(20);
+    expect(guest.mp.takeGarbage()).toBe(0);
+  });
+
+  it('방해 대전이 아니면 방해 구슬을 받지 않습니다', async () => {
+    const hub = new FakeHub();
+    const { host, guest } = await startedPair(hub, 'race');
+    host.mp.report(status({ attack: 4 }));
+    pass(hub, 300, host, guest);
+    expect(guest.mp.takeGarbage()).toBe(0);
   });
 });

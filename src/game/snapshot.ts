@@ -1,4 +1,4 @@
-import { BIN_H, BIN_W, FRUITS } from './fruits';
+import { BIN_H, BIN_W, STONE } from './fruits';
 
 /** 다른 사람에게 보내는 통 요약의 과일 하나. */
 export interface BinFruit {
@@ -30,7 +30,8 @@ export function encodeBin(fruits: readonly BinFruit[]): string {
   let count = 0;
   for (const fruit of fruits) {
     if (count >= MAX_SNAPSHOT_FRUITS) break;
-    if (!Number.isInteger(fruit.tier) || fruit.tier < 0 || fruit.tier >= FRUITS.length) continue;
+    // 방해 구슬(STONE)까지가 올바른 단계입니다.
+    if (!Number.isInteger(fruit.tier) || fruit.tier < 0 || fruit.tier > STONE) continue;
     text += pack(fruit.x, BIN_W) + pack(fruit.y, BIN_H) + fruit.tier.toString(36);
     count++;
   }
@@ -44,7 +45,7 @@ export function decodeBin(value: unknown): BinFruit[] | null {
   const fruits: BinFruit[] = [];
   for (let i = 0; i < value.length; i += CELL) {
     const tier = parseInt(value[i + 4], 36);
-    if (tier >= FRUITS.length) return null;
+    if (tier > STONE) return null;
     fruits.push({
       x: (parseInt(value.slice(i, i + 2), 36) / RANGE) * BIN_W,
       y: (parseInt(value.slice(i + 2, i + 4), 36) / RANGE) * BIN_H,

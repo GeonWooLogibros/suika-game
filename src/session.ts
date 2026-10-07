@@ -1,10 +1,11 @@
-import { BIN_H, BIN_W, DROP_Y, FRUITS, WATERMELON, mergeScore } from './game/fruits';
-import { makeFruitQueue, type FruitQueue } from './game/random';
+import { BIN_H, BIN_W, DROP_Y, FRUITS, STONE, STONE_RADIUS, WATERMELON, mergeScore } from './game/fruits';
+import { makeFruitQueue, mulberry32, type FruitQueue } from './game/random';
 import {
   DROP_COOLDOWN_TICKS,
   MAX_STEPS_PER_FRAME,
   OVERFLOW_TICKS,
   STEP_MS,
+  garbageFor,
   isAboveLine,
   mergeResult,
   nextOverflow,
@@ -31,9 +32,18 @@ export interface SessionOptions {
   boost?: number;
   /** 테스트에서 과일 순서를 직접 정할 때 씁니다. */
   queue?: FruitQueue;
+  /** 시간 제한 점수전에서 판이 멈추는 걸음 수. */
+  tickLimit?: number;
 }
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
+
+/** 한 차례에 떨어지는 방해 구슬의 상한. 나머지는 다음 차례로 넘깁니다. */
+const GARBAGE_PER_TURN = 5;
+/** 쌓아 둘 수 있는 방해 구슬의 상한. */
+const GARBAGE_MAX = 30;
+/** 과일을 놓지 않고 버텨도 이 걸음이 지나면 방해 구슬이 떨어집니다(약 3초). */
+const GARBAGE_WAIT_TICKS = 180;
 
 /** 한 판의 진행. 물리와 규칙을 묶어서 점수와 끝남 여부를 관리합니다. */
 export class Session {
@@ -46,6 +56,15 @@ export class Session {
   /** 수박을 처음 만든 걸음. 같이 하기에서 누가 먼저 만들었는지 비교하는 데 씁니다. */
   watermelonAt: number | null = null;
   aimX = BIN_W / 2;
+  /** 시간 제한에 이르러 판이 멈췄는지 여부. */
+  timeUp = false;
+  /** 방해 대전에서 지금까지 상대에게 보낸 방해 구슬의 수. */
+  attackSent = 0;
+  /** 받았지만 아직 떨어지지 않은 방해 구슬의 수. */
+  incoming = 0;
+  private readonly tickLimit: number | null;
+  private readonly garbageRandom: () => number;
+  private garbageWait = 0;
   private readonly queue: FruitQueue;
   private cooldown = 0;
   private overflow = 0;
@@ -53,12 +72,15 @@ export class Session {
 
   constructor(seed: number, options: SessionOptions = {}) {
     this.queue = options.queue ?? makeFruitQueue(seed, options.boost ?? 0);
+    this.tickLimit = options.tickLimit && options.tickLimit > 0 ? Math.floor(options.tickLimit) : null;
+    // 방해 구슬이 떨어지는 자리는 겉으로 보이는 차이만 만들므로 과일 순서와 다른 난수를 씁니다.
+    this.garbageRandom = mulberry32((seed ^ 0x5bd1e995) >>> 0);
     this.aim(this.aimX);
   }
 
   /** 지금 들고 있는 과일의 단계. 다음 과일을 기다리는 중이거나 판이 끝났으면 null입니다. */
   get held(): number | null {
-    return this.over || this.cooldown > 0 ? null : this.queue.current();
+    return this.over || this.timeUp || this.cooldown > 0 ? null : this.queue.current();
   }
 
   get upcoming(): number {
@@ -90,19 +112,39 @@ export class Session {
 
   tick(): TickEvents {
     const events: TickEvents = { merges: [] };
-    if (this.over) return events;
+    if (this.over || this.timeUp) return events;
     this.ticks++;
-    if (this.cooldown > 0) this.cooldown--;
+    let nextFruitReady = false;
+    if (this.cooldown > 0) {
+      this.cooldown--;
+      nextFruitReady = this.cooldown === 0;
+    }
+    if (this.incoming > 0) {
+      this.garbageWait++;
+      if (nextFruitReady || this.garbageWait >= GARBAGE_WAIT_TICKS) this.releaseGarbage();
+    }
     this.world.step();
 
-    for (const [a, b] of pickMerges(this.world.contacts(), (id) => this.world.tierOf(id))) {
+    const contacts = this.world.contacts();
+    // 방해 구슬은 합쳐지지 않으므로 단계를 알려 주지 않습니다.
+    const fruitTier = (id: number): number | undefined => {
+      const tier = this.world.tierOf(id);
+      return tier === STONE ? undefined : tier;
+    };
+    for (const [a, b] of pickMerges(contacts, fruitTier)) {
       const first = this.world.get(a);
       const second = this.world.get(b);
       if (!first || !second) continue;
       const from = first.tier;
       const result = mergeResult(from);
+      // 합쳐지는 과일에 닿아 있던 방해 구슬은 함께 없앱니다.
+      for (const [p, q] of contacts) {
+        const other = p === a || p === b ? q : q === a || q === b ? p : null;
+        if (other !== null && this.world.tierOf(other) === STONE) this.world.remove(other);
+      }
       this.world.remove(a);
       this.world.remove(b);
+      this.attackSent += garbageFor(result);
       let x = (first.x + second.x) / 2;
       let y = (first.y + second.y) / 2;
       let id: number | null = null;
@@ -121,6 +163,7 @@ export class Session {
 
     this.overflow = nextOverflow(this.overflow, this.world.fruits().some(isAboveLine));
     if (this.overflow >= OVERFLOW_TICKS) this.over = true;
+    else if (this.tickLimit !== null && this.ticks >= this.tickLimit) this.timeUp = true;
     return events;
   }
 
@@ -137,6 +180,28 @@ export class Session {
     }
     if (this.backlog >= STEP_MS) this.backlog = 0;
     return events;
+  }
+
+  /** 시간 제한까지 남은 걸음. 제한이 없으면 null입니다. */
+  get ticksLeft(): number | null {
+    return this.tickLimit === null ? null : Math.max(0, this.tickLimit - this.ticks);
+  }
+
+  /** 상대가 보낸 방해 구슬을 받아 둡니다. 다음 과일이 나올 때 떨어집니다. */
+  addGarbage(count: number): void {
+    if (!Number.isFinite(count) || count <= 0) return;
+    this.incoming = Math.min(GARBAGE_MAX, this.incoming + Math.floor(count));
+  }
+
+  private releaseGarbage(): void {
+    const count = Math.min(this.incoming, GARBAGE_PER_TURN);
+    for (let i = 0; i < count; i++) {
+      const x = STONE_RADIUS + this.garbageRandom() * (BIN_W - STONE_RADIUS * 2);
+      // 통의 위쪽 바깥에서 차례로 떨어지게 높이를 조금씩 다르게 둡니다.
+      this.world.add(STONE, x, -STONE_RADIUS * (1 + i * 2.5));
+    }
+    this.incoming -= count;
+    this.garbageWait = 0;
   }
 
   fruits(): FruitBody[] {

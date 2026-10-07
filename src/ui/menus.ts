@@ -1,3 +1,4 @@
+import { MODES, type Mode } from '../game/match';
 import type { LobbyView, ResultRow } from '../multiplayer';
 
 /** 처음 화면, 대기실, 결과 화면, 게임 중 버튼. 버튼이 눌리면 넘겨받은 함수를 부르기만 하고 게임 상태를 직접 바꾸지 않습니다. */
@@ -16,7 +17,7 @@ export type MenuView =
   | { kind: 'play'; muted: boolean; multi: boolean }
   | { kind: 'soloResult'; score: number; best: number; newBest: boolean }
   | { kind: 'lobby'; view: LobbyView; copied: boolean }
-  | { kind: 'multiResult'; rows: ResultRow[] };
+  | { kind: 'multiResult'; rows: ResultRow[]; mode: Mode };
 
 export interface MenuActions {
   solo(): void;
@@ -32,6 +33,8 @@ export interface MenuActions {
   copy(invite: string): void;
   /** 결과 화면에서 대기실로 돌아갑니다. */
   lobby(): void;
+  /** 방장이 대기실에서 모드를 고릅니다. */
+  mode(mode: Mode): void;
   leave(): void;
 }
 
@@ -136,6 +139,21 @@ export function createMenus(root: HTMLElement, actions: MenuActions): { show(vie
     }
     panel.append(rows);
 
+    const info = MODES.find((mode) => mode.id === view.mode) ?? MODES[0];
+    const picker = el('div', 'group');
+    picker.append(el('h2', 'heading', '모드'));
+    if (view.isHost && view.settled) {
+      const grid = el('div', 'modes');
+      for (const mode of MODES) {
+        grid.append(button(mode.name, () => actions.mode(mode.id), mode.id === view.mode ? 'btn small on' : 'btn small'));
+      }
+      picker.append(grid);
+    } else {
+      picker.append(el('p', 'mode-name', info.name));
+    }
+    picker.append(el('p', 'hint', info.summary));
+    panel.append(picker);
+
     if (!view.settled) {
       panel.append(el('p', 'hint', '방의 상태를 확인하는 중입니다.'));
     } else if (view.isHost) {
@@ -149,7 +167,7 @@ export function createMenus(root: HTMLElement, actions: MenuActions): { show(vie
       }
     } else {
       panel.append(button(view.ready ? '준비 취소하기' : '준비하기', actions.ready, 'btn primary'));
-      panel.append(el('p', 'hint', '모두 준비하면 방장이 판을 시작합니다. 수박을 먼저 만드는 사람이 이깁니다.'));
+      panel.append(el('p', 'hint', '모두 준비하면 방장이 판을 시작합니다.'));
     }
     panel.append(button('방 나가기', actions.leave));
     return panel;
@@ -159,10 +177,12 @@ export function createMenus(root: HTMLElement, actions: MenuActions): { show(vie
     const panel = el('div', 'panel');
     const mine = view.rows.find((row) => row.me);
     panel.append(el('h1', 'title', mine?.winner ? '승리했습니다' : '판이 끝났습니다'));
+    panel.append(el('p', 'sub', MODES.find((mode) => mode.id === view.mode)?.name ?? ''));
     const rows = el('ul', 'rows');
     view.rows.forEach((row, i) => {
       const item = el('li', row.me ? 'row me' : 'row');
-      const tag = row.state === 'win' ? `수박 완성 · ${row.score}점` : `${row.score}점`;
+      const badge = row.state === 'win' ? '수박 완성 · ' : view.mode === 'battle' && row.state === 'play' ? '생존 · ' : '';
+      const tag = `${badge}${row.score}점`;
       item.append(el('span', '', `${i + 1}위 ${row.me ? `${row.name} (나)` : row.name}`), el('span', 'tag', tag));
       rows.append(item);
     });

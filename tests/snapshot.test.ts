@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BIN_H, BIN_W } from '../src/game/fruits';
+import { BIN_H, BIN_W, STONE } from '../src/game/fruits';
 import { MAX_SNAPSHOT_FRUITS, blendBins, decodeBin, encodeBin, type BinFruit } from '../src/game/snapshot';
 
 describe('통 요약', () => {
@@ -24,7 +24,7 @@ describe('통 요약', () => {
     const back = decodeBin(
       encodeBin([
         { x: -50, y: 9999, tier: 1 },
-        { x: 10, y: 10, tier: 11 },
+        { x: 10, y: 10, tier: 12 },
         { x: 10, y: 10, tier: 1.5 },
         { x: Number.NaN, y: 10, tier: 2 },
       ]),
@@ -41,6 +41,12 @@ describe('통 요약', () => {
     expect(decodeBin(text)).toHaveLength(MAX_SNAPSHOT_FRUITS);
   });
 
+  it('방해 구슬도 요약에 담습니다', () => {
+    const back = decodeBin(encodeBin([{ x: 100, y: 200, tier: STONE }]));
+    expect(back).toHaveLength(1);
+    expect(back?.[0].tier).toBe(STONE);
+  });
+
   it('빈 통은 빈 문자열입니다', () => {
     expect(encodeBin([])).toBe('');
     expect(decodeBin('')).toEqual([]);
@@ -53,7 +59,7 @@ describe('통 요약', () => {
     expect(decodeBin('ABCDE')).toBeNull();
     expect(decodeBin('00 00')).toBeNull();
     expect(decodeBin('<b>00')).toBeNull();
-    expect(decodeBin('0000b')).toBeNull();
+    expect(decodeBin('0000c')).toBeNull();
     expect(decodeBin('00000'.repeat(MAX_SNAPSHOT_FRUITS + 1))).toBeNull();
   });
 

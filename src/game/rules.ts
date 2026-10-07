@@ -41,3 +41,9 @@ export function isAboveLine(fruit: { y: number; radius: number; settled: boolean
 export function nextOverflow(ticks: number, anyAbove: boolean): number {
   return anyAbove ? ticks + 1 : 0;
 }
+
+/** 방해 대전에서 과일을 합쳤을 때 상대에게 보내는 방해 구슬의 수. 감(4단계)부터 보내고, 클수록 많이 보냅니다. */
+export function garbageFor(result: number | null): number {
+  if (result === null) return 8;
+  return Math.max(0, result - 3);
+}

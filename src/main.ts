@@ -1,6 +1,6 @@
 import './style.css';
 import { createAudio } from './audio';
-import { parseRoomCode } from './game/match';
+import { TIMED_SECONDS, parseRoomCode, type Mode, type PlayState } from './game/match';
 import { attachInput } from './input';
 import { Multiplayer, type Stage } from './multiplayer';
 import { connect, type Connection } from './net/connect';
@@ -36,8 +36,8 @@ const boost = import.meta.env.DEV
 /** 초대 링크로 열었으면 주소 뒤의 방 코드를 입력 칸에 미리 넣어 둡니다. */
 const invitedCode = parseRoomCode(window.location.hash) ?? '';
 
-type Mode = 'title' | 'solo' | 'soloOver';
-let mode: Mode = 'title';
+type Screen = 'title' | 'solo' | 'soloOver';
+let mode: Screen = 'title';
 let session: Session | null = null;
 let best = loadBest(store);
 let newBest = false;
@@ -52,7 +52,7 @@ let outAnnounced = false;
 function onStage(stage: Stage): void {
   if (stage === 'countdown' && mp) {
     effects.clear();
-    session = new Session(mp.seed, { boost });
+    session = new Session(mp.seed, { boost, tickLimit: mp.mode === 'timed' ? TIMED_SECONDS * 60 : undefined });
     outAnnounced = false;
   } else if (stage === 'result' && mp) {
     if (mp.resultRows().some((row) => row.me && row.winner)) audio.win();
@@ -68,6 +68,13 @@ void connect().then((result) => {
   connection = result;
   mp = new Multiplayer(result.lobby, result.inviteBase, { onStage });
 });
+
+/** 모드에 따라 내 판의 상태를 정합니다. 수박을 만들어서 끝나는 것은 수박 먼저 만들기뿐입니다. */
+function playState(current: Session, mode: Mode): PlayState {
+  if (mode === 'race' && current.watermelonAt !== null) return 'win';
+  if (current.over) return 'out';
+  return current.timeUp ? 'done' : 'play';
+}
 
 function inRoom(): boolean {
   return mp !== null && mp.stage !== 'idle' && mp.stage !== 'joining';
@@ -118,6 +125,7 @@ const menus = createMenus(app, {
     );
   },
   lobby: () => mp?.backToLobby(),
+  mode: (mode) => mp?.setMode(mode),
   leave: () => mp?.leave(),
 });
 
@@ -128,7 +136,7 @@ function view(now: number): MenuView {
     if (lobby) return { kind: 'lobby', view: lobby, copied: now - copiedAt < COPIED_MS };
   }
   if (mp && (stage === 'countdown' || stage === 'playing')) return { kind: 'play', muted: audio.muted, multi: true };
-  if (mp && stage === 'result') return { kind: 'multiResult', rows: mp.resultRows() };
+  if (mp && stage === 'result') return { kind: 'multiResult', rows: mp.resultRows(), mode: mp.mode };
   if (mode === 'solo') return { kind: 'play', muted: audio.muted, multi: false };
   if (mode === 'soloOver') return { kind: 'soloResult', score: session?.score ?? 0, best, newBest };
   return {
@@ -192,12 +200,14 @@ function frame(time: number): void {
   }
 
   if (mp && session && stage === 'playing') {
+    if (mp.mode === 'battle') session.addGarbage(mp.takeGarbage());
     mp.report({
       score: session.score,
       top: session.top,
-      state: session.watermelonAt !== null ? 'win' : session.over ? 'out' : 'play',
-      winTicks: session.watermelonAt,
+      state: playState(session, mp.mode),
+      winTicks: mp.mode === 'race' ? session.watermelonAt : null,
       fruits: session.fruits(),
+      attack: session.attackSent,
     });
   }
   mp?.update();
@@ -219,7 +229,15 @@ function frame(time: number): void {
     rivals,
     countdown: mp && stageNow === 'countdown' ? mp.countdownLeft() : null,
     note:
-      stageNow === 'playing' && session?.over ? '탈락했습니다. 다른 사람의 통을 구경합니다.' : null,
+      stageNow !== 'playing' || !session
+        ? null
+        : session.over
+          ? '탈락했습니다. 다른 사람의 통을 구경합니다.'
+          : session.timeUp
+            ? '시간이 끝났습니다. 다른 사람을 기다립니다.'
+            : null,
+    timeLeft: session && stageNow === 'playing' && session.ticksLeft !== null ? session.ticksLeft / 60 : null,
+    incoming: session && stageNow === 'playing' ? session.incoming : 0,
   });
   menus.show(view(time));
   requestAnimationFrame(frame);
